@@ -1,0 +1,66 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <errno.h>
+#include <signal.h>
+
+#define MESSAGE_LENGTH 100
+
+void getMessage(char message[MESSAGE_LENGTH]) {
+    printf("What movie do you want to watch? : ");
+    fgets(message, MESSAGE_LENGTH, stdin);
+}
+
+void sigint_handler(int sig);
+
+int main() {
+    signal(SIGINT, sigint_handler);
+
+    int numChildren;
+    printf("How many ticket do you want to buy? ");
+    scanf("%d", &numChildren);
+    getchar(); // consume the newline character left in the input buffer after scanf
+
+    while(numChildren > 0) {
+        int pipefds[2];
+        char message[MESSAGE_LENGTH];
+        char buffer[MESSAGE_LENGTH];
+        
+        pipe(pipefds);
+        pid_t pid = fork();
+
+        if(signal(SIGINT, sigint_handler) == SIG_ERR) {
+            perror("signal");
+            exit(1);
+        }
+
+        if(pid == 0) { // child process
+            close(pipefds[1]); // close the write end of the pipe
+            read(pipefds[0], buffer, MESSAGE_LENGTH); // read the message from the read end of the pipe
+            close(pipefds[0]); // close the read end of the pipe
+
+            printf("customer %d received ticket for movie: %s\n", getpid(), buffer);
+            sleep(1); // wait for parent to receive the confirmation message before exiting
+            exit(EXIT_SUCCESS);
+        }
+
+        if(pid > 0) { // parent process
+            getMessage(message);
+            close(pipefds[0]); // close the read end of the pipe
+            write(pipefds[1], message, MESSAGE_LENGTH); // send the message through the write end of the pipe
+            printf("Ticket sent to customer %d...\n", pid);
+            wait(NULL); // wait for child to exit
+            close(pipefds[1]); // close the write end of the pipe
+            numChildren--;
+        }
+    }
+
+    return EXIT_SUCCESS;
+}
+
+void sigint_handler(int sig) {
+    printf("**** Process was interrupted! ****\n");
+    exit(1);
+}
